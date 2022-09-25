@@ -2,22 +2,19 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import {
-	IconButton,
-	IIconProps,
-	ITooltipHostProps,
-	TooltipHost,
-} from '@fluentui/react'
+import type { IIconProps, ITooltipHostProps } from '@fluentui/react'
+import { IconButton, TooltipHost } from '@fluentui/react'
 import { memo, useCallback } from 'react'
 
 export interface InfoTooltipProps {
 	children?: JSX.Element
+	title?: string
 }
 
 const infoIcon: IIconProps = { iconName: 'Info' }
 
 export const InfoTooltip: React.FC<InfoTooltipProps & ITooltipHostProps> = memo(
-	function InfoTooltip({ children, ...props }) {
+	function InfoTooltip({ title, children, ...props }) {
 		const renderChildren = useCallback(() => {
 			return children ?? null
 		}, [children])
@@ -30,7 +27,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps & ITooltipHostProps> = memo(
 
 		return (
 			<TooltipHost {...props}>
-				<IconButton iconProps={infoIcon} />
+				<IconButton title={title} iconProps={infoIcon} />
 			</TooltipHost>
 		)
 	},

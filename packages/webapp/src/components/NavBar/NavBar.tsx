@@ -2,11 +2,12 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import { IStackTokens, PrimaryButton, Stack, useTheme } from '@fluentui/react'
-import { FluentTheme } from '@thematic/fluent'
+import type { IStackTokens } from '@fluentui/react'
+import { PrimaryButton, Stack, useTheme } from '@fluentui/react'
+import type { FluentTheme } from '@thematic/fluent'
 import { useThematic } from '@thematic/react'
 import React, { memo, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import styled from 'styled-components'
 
 export interface NavBarProps {
@@ -86,7 +87,7 @@ const NavBarStackItem = styled(Stack.Item)`
 	margin: 0px;
 `
 
-const NavBarPrimaryButton = styled(PrimaryButton)`
+const NavBarPrimaryButton = styled(PrimaryButton as any)`
 	height: 100%;
 	padding: 0;
 	margin: 0;

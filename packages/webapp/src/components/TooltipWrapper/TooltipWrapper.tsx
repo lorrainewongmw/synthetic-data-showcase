@@ -4,6 +4,7 @@
  */
 import { Label, Stack } from '@fluentui/react'
 import { memo } from 'react'
+
 import { InfoTooltip } from '~components/InfoTooltip'
 
 export interface TooltipWrapperProps {
@@ -22,7 +23,7 @@ export const TooltipWrapper: React.FC<TooltipWrapperProps> = memo(
 			<Stack>
 				<Stack horizontal>
 					{label && <Label>{label}</Label>}
-					{tooltip && <InfoTooltip>{tooltip}</InfoTooltip>}
+					{tooltip && <InfoTooltip title={label}>{tooltip}</InfoTooltip>}
 				</Stack>
 				{children}
 			</Stack>

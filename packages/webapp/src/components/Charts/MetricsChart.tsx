@@ -2,13 +2,13 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
+import type { IMetricByKey } from '@essex/sds-core'
 import { memo } from 'react'
 import { Chart } from 'react-chartjs-2'
-import { IMetrics } from '~models'
 
 export interface IMetricsChart {
 	label: string
-	metrics: IMetrics
+	metrics: IMetricByKey
 	type: 'line' | 'bar'
 	max?: number
 	drawYAxisOnChartArea?: boolean
@@ -77,6 +77,9 @@ export const MetricsChart: React.FC<MetricsChartProps> = memo(
 					responsive: false,
 					maintainAspectRatio: false,
 					scales: scales,
+				}}
+				style={{
+					margin: 'auto',
 				}}
 			/>
 		)

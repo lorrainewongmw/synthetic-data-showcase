@@ -2,11 +2,14 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import { ActionButton, IIconProps, Stack, useTheme } from '@fluentui/react'
-import { FC, useRef } from 'react'
+import type { IIconProps } from '@fluentui/react'
+import { ActionButton, Stack, useTheme } from '@fluentui/react'
+import type { FC } from 'react'
+import { useRef } from 'react'
 import styled from 'styled-components'
-import { DownloadInfo } from './DownloadInfo'
-import { useDownloadOnClick } from './hooks'
+
+import type { DownloadInfo } from './DownloadInfo.js'
+import { useDownloadOnClick } from './hooks.js'
 
 const downloadIcon: IIconProps = { iconName: 'Download' }
 

@@ -1,21 +1,25 @@
-/// Module defining the structures that represent a data block
-pub mod block;
+mod block;
+mod csv_block_creator;
+mod csv_io_error;
+mod csv_record_input_values;
+mod data_block_creator;
+mod data_block_creator_error;
+mod headers_metadata;
+mod input_value;
+mod multi_value_column_metadata;
+mod raw_data;
+mod record;
+mod subject_id_joiner;
+mod typedefs;
+mod value;
 
-/// Module to create data blocks from CSV files
-pub mod csv_block_creator;
-
-/// Defines io errors for handling csv files
-/// that are easier to bind to other languages
-pub mod csv_io_error;
-
-/// Module to create data blocks from different input types (trait definitions)
-pub mod data_block_creator;
-
-/// Module defining the structures that represent a data block record
-pub mod record;
-
-/// Type definitions related to data blocks
-pub mod typedefs;
-
-/// Module defining the structures that represent a data block value
-pub mod value;
+pub use block::*;
+pub use csv_block_creator::*;
+pub use csv_io_error::*;
+pub use data_block_creator::*;
+pub use data_block_creator_error::*;
+pub use multi_value_column_metadata::*;
+pub use raw_data::*;
+pub use record::*;
+pub use typedefs::*;
+pub use value::*;

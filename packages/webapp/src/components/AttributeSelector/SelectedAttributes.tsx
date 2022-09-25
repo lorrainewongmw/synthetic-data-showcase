@@ -2,23 +2,28 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import {
-	CommandButton,
-	IIconProps,
-	IStackTokens,
-	PrimaryButton,
-	Stack,
-	useTheme,
-} from '@fluentui/react'
-import { memo } from 'react'
-import { HeaderNames, ISelectedAttributesByColumn } from 'sds-wasm'
-import { useSelectedAttributesByColumnEntries } from './hooks'
-import {
-	ClearSelectedAttributesCallback,
-	SetSelectedAttributesCallback,
-} from '~components/Pages/DataShowcasePage/DataNavigation'
+import type {
+	HeaderNames,
+	IAttributesIntersection,
+	ISelectedAttributesByColumn,
+} from '@essex/sds-core'
+import type { IIconProps } from '@fluentui/react'
+import { CommandButton, Icon } from '@fluentui/react'
+import { FlexContainer } from '@sds/components'
+import _ from 'lodash'
+import { memo, useMemo } from 'react'
+import styled from 'styled-components'
+
+import { useSelectedAttributesByColumnEntries } from './hooks.js'
 
 const deleteIcon: IIconProps = { iconName: 'Delete' }
+
+export type SetSelectedAttributesCallback = (
+	headerIndex: number,
+	item: IAttributesIntersection | undefined,
+) => Promise<void>
+
+export type ClearSelectedAttributesCallback = () => void
 
 export interface SelectedAttributesProps {
 	headers: HeaderNames
@@ -34,40 +39,62 @@ export const SelectedAttributes: React.FC<SelectedAttributesProps> = memo(
 		onSetSelectedAttributes,
 		onClearSelectedAttributes,
 	}: SelectedAttributesProps) {
-		const theme = useTheme()
 		const selectedEntries = useSelectedAttributesByColumnEntries(
 			selectedAttributesByColumn,
 		)
-
-		const stackTokens: IStackTokens = {
-			childrenGap: theme.spacing.s2,
-		}
+		const isNotEmpty = useMemo(
+			() =>
+				_.some(
+					selectedEntries,
+					entry => Array.from(entry[1].keys()).length > 0,
+				),
+			[selectedEntries],
+		)
 
 		return (
-			<Stack tokens={stackTokens} horizontal wrap verticalAlign="center">
-				<PrimaryButton
-					onClick={onClearSelectedAttributes}
-					disabled={selectedEntries.length === 0}
-				>
-					Clear
-				</PrimaryButton>
+			<>
 				{selectedEntries.flatMap(entry => {
 					return Array.from(entry[1].keys())
 						.sort()
 						.map(value => {
 							return (
-								<CommandButton
-									key={`${entry[0]}:${value}`}
-									iconProps={deleteIcon}
-									text={`${headers[entry[0]]}:${value}`}
-									onClick={async () =>
-										await onSetSelectedAttributes(+entry[0], undefined)
-									}
-								/>
+								<FlexContainer key={`${entry[0]}:${value}`} align="center">
+									<Divider>|</Divider>
+									<CommandButton
+										iconProps={deleteIcon}
+										text={`${headers[entry[0]]}:${value}`}
+										onClick={async () =>
+											await onSetSelectedAttributes(+entry[0], undefined)
+										}
+									/>
+								</FlexContainer>
 							)
 						})
 				})}
-			</Stack>
+				{isNotEmpty && (
+					<StyledIcon
+						iconName="ChromeClose"
+						onClick={onClearSelectedAttributes}
+					></StyledIcon>
+				)}
+			</>
 		)
 	},
 )
+
+const StyledIcon = styled(Icon)`
+	color: ${p => p.theme.palette.themePrimary};
+	font-size: ${p => p.theme.fonts.mediumPlus.fontSize};
+	padding: ${p => `${p.theme.spacing.s1}`};
+	margin: ${p => `0 ${p.theme.spacing.m}`};
+	background: ${p => p.theme.palette.neutralLight};
+	border-radius: ${p => p.theme.effects.roundedCorner4};
+	&:hover {
+		cursor: pointer;
+	}
+`
+
+const Divider = styled.span`
+	font-size: ${p => p.theme.fonts.smallPlus.fontSize};
+	color: ${p => p.theme.palette.neutralTertiary};
+`

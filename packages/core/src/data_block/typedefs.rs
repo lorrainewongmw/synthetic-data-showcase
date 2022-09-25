@@ -1,8 +1,8 @@
-use super::{record::DataBlockRecord, value::DataBlockValue};
+use super::{record::DataBlockRecord, value::DataBlockValue, MultiValueColumnMetadata};
 use fnv::FnvHashMap;
 use std::sync::Arc;
 
-use crate::processing::evaluator::rare_combinations_comparison_data::CombinationComparison;
+use crate::processing::evaluator::CombinationComparison;
 
 /// Ordered vector of rows where a particular value combination is present
 pub type AttributeRows = Vec<usize>;
@@ -28,6 +28,9 @@ pub type DataBlockHeaders = CsvRecordRef;
 /// Slice of DataBlockHeaders
 pub type DataBlockHeadersSlice = CsvRecordRefSlice;
 
+/// Maps a normalized multi-value header name (such as A_a1) to its corresponding metadata
+pub type MultiValueColumnMetadataMap = FnvHashMap<Arc<String>, MultiValueColumnMetadata>;
+
 /// Vector of data block records, where each record represents a row
 pub type DataBlockRecords = Vec<Arc<DataBlockRecord>>;
 
@@ -40,8 +43,8 @@ pub type AttributeRowsRefMap = FnvHashMap<Arc<DataBlockValue>, Arc<AttributeRows
 /// Maps the column index -> data block value -> rows where the value appear
 pub type AttributeRowsByColumnMap = FnvHashMap<usize, AttributeRowsMap>;
 
-/// Raw synthesized data (vector of csv record references to the original data block)
-pub type RawSyntheticData = Vec<CsvRecordRef>;
+/// Raw data (vector of csv record references to the original data block)
+pub type RawData = Vec<CsvRecordRef>;
 
 /// A vector of combination comparisons
 /// (between sensitive and synthetic data)

@@ -2,15 +2,18 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
+import type { HeaderNames, ISelectedAttributesByColumn } from '@essex/sds-core'
 import { Stack, useTheme } from '@fluentui/react'
 import { memo } from 'react'
-import { HeaderNames, ISelectedAttributesByColumn } from 'sds-wasm'
-import { ColumnAttributeSelector } from './ColumnAttributeSelector'
+
 import { AttributeIntersectionValueChartLegend } from '~components/AttributeIntersectionValueChartLegend'
 import { useHorizontalScrolling } from '~components/Charts/hooks'
-import { SetSelectedAttributesCallback } from '~components/Pages/DataShowcasePage/DataNavigation'
+
+import { ColumnAttributeSelector } from './ColumnAttributeSelector.js'
+import type { SetSelectedAttributesCallback } from './SelectedAttributes.js'
 
 export interface ColumnAttributeSelectorGridProps {
+	contextKey: string
 	viewHeight: string | number
 	headers: HeaderNames
 	selectedHeaders: boolean[]
@@ -24,6 +27,7 @@ export interface ColumnAttributeSelectorGridProps {
 
 export const ColumnAttributeSelectorGrid: React.FC<ColumnAttributeSelectorGridProps> =
 	memo(function ColumnAttributeSelectorGrid({
+		contextKey,
 		viewHeight,
 		headers,
 		selectedHeaders,
@@ -60,6 +64,7 @@ export const ColumnAttributeSelectorGrid: React.FC<ColumnAttributeSelectorGridPr
 							selectedHeaders[i] && (
 								<Stack.Item key={i}>
 									<ColumnAttributeSelector
+										contextKey={contextKey}
 										headerName={h}
 										columnIndex={i}
 										height={chartHeight}
@@ -69,6 +74,7 @@ export const ColumnAttributeSelectorGrid: React.FC<ColumnAttributeSelectorGridPr
 										selectedAttributes={
 											selectedAttributesByColumn[i] ?? new Set()
 										}
+										selectedAttributesByColumn={selectedAttributesByColumn}
 										onSetSelectedAttributes={onSetSelectedAttributes}
 									/>
 								</Stack.Item>

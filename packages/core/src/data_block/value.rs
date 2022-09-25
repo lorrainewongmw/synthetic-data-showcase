@@ -1,8 +1,13 @@
 use super::typedefs::DataBlockHeadersSlice;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, str::FromStr, sync::Arc};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+    sync::Arc,
+};
 
-const VALUE_DELIMITER: char = ':';
+/// Delimiter between column name and attribute value
+pub const COLUMN_VALUE_DELIMITER: char = ':';
 
 /// Represents a value of a given data block for a particular row and column
 #[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -33,16 +38,28 @@ impl DataBlockValue {
     /// * `headers` - data block headers
     /// * `value` - value to be formatted
     #[inline]
-    pub fn format_str_using_headers(&self, headers: &DataBlockHeadersSlice) -> String {
+    pub fn as_str_using_headers(&self, headers: &DataBlockHeadersSlice) -> String {
         format!(
             "{}{}{}",
-            headers[self.column_index], VALUE_DELIMITER, self.value
+            headers[self.column_index], COLUMN_VALUE_DELIMITER, self.value
         )
+    }
+}
+
+impl Display for DataBlockValue {
+    /// Formats the DataBlockValue as a string
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(write!(
+            f,
+            "{}{}{}",
+            self.column_index, COLUMN_VALUE_DELIMITER, self.value
+        )?)
     }
 }
 
 /// Error that can happen when parsing a data block from
 /// a string
+#[derive(Debug)]
 pub struct ParseDataBlockValueError {
     error_message: String,
 }
@@ -56,7 +73,7 @@ impl ParseDataBlockValueError {
 }
 
 impl Display for ParseDataBlockValueError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.error_message)
     }
 }
@@ -66,7 +83,7 @@ impl FromStr for DataBlockValue {
 
     /// Creates a new DataBlockValue by parsing `str_value`
     fn from_str(str_value: &str) -> Result<Self, Self::Err> {
-        if let Some(pos) = str_value.find(VALUE_DELIMITER) {
+        if let Some(pos) = str_value.find(COLUMN_VALUE_DELIMITER) {
             Ok(DataBlockValue::new(
                 str_value[..pos]
                     .parse::<usize>()
@@ -76,15 +93,8 @@ impl FromStr for DataBlockValue {
         } else {
             Err(ParseDataBlockValueError::new(format!(
                 "data block value missing '{}'",
-                VALUE_DELIMITER
+                COLUMN_VALUE_DELIMITER
             )))
         }
-    }
-}
-
-impl Display for DataBlockValue {
-    /// Formats the DataBlockValue as a string
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(write!(f, "{}:{}", self.column_index, self.value)?)
     }
 }

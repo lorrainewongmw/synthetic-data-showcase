@@ -1,15 +1,14 @@
 use js_sys::{Object, Reflect::set};
-use sds_core::{
-    processing::generator::generated_data::GeneratedData, utils::time::ElapsedDurationLogger,
-};
+use sds_core::{processing::generator::GeneratedData, utils::time::ElapsedDurationLogger};
 use std::ops::{Deref, DerefMut};
 use wasm_bindgen::{prelude::*, JsCast};
 
-use crate::utils::js::ts_definitions::{JsGenerateResult, JsResult};
+use crate::utils::js::{JsGenerateResult, JsResult};
 
 #[wasm_bindgen]
 pub struct WasmGenerateResult {
     generated_data: GeneratedData,
+    resolution: usize,
 }
 
 impl WasmGenerateResult {
@@ -17,12 +16,16 @@ impl WasmGenerateResult {
     pub fn default() -> WasmGenerateResult {
         WasmGenerateResult {
             generated_data: GeneratedData::default(),
+            resolution: 0,
         }
     }
 
     #[inline]
-    pub fn new(generated_data: GeneratedData) -> WasmGenerateResult {
-        WasmGenerateResult { generated_data }
+    pub fn new(generated_data: GeneratedData, resolution: usize) -> WasmGenerateResult {
+        WasmGenerateResult {
+            generated_data,
+            resolution,
+        }
     }
 }
 
@@ -34,15 +37,31 @@ impl WasmGenerateResult {
         self.generated_data.expansion_ratio
     }
 
+    #[wasm_bindgen(getter)]
+    #[wasm_bindgen(js_name = "resolution")]
+    pub fn resolution(&self) -> usize {
+        self.resolution
+    }
+
     #[wasm_bindgen(js_name = "syntheticDataToJs")]
-    pub fn synthetic_data_to_js(&self, delimiter: char) -> JsResult<String> {
+    pub fn synthetic_data_to_js(
+        &self,
+        delimiter: char,
+        join_multi_value_columns: bool,
+        long_form: bool,
+    ) -> JsResult<String> {
         self.generated_data
-            .synthetic_data_to_string(delimiter)
+            .synthetic_data_to_string(delimiter, "", join_multi_value_columns, long_form)
             .map_err(|err| JsValue::from(err.to_string()))
     }
 
     #[wasm_bindgen(js_name = "toJs")]
-    pub fn to_js(&self, delimiter: char) -> JsResult<JsGenerateResult> {
+    pub fn to_js(
+        &self,
+        delimiter: char,
+        join_multi_value_columns: bool,
+        long_form: bool,
+    ) -> JsResult<JsGenerateResult> {
         let _duration_logger =
             ElapsedDurationLogger::new(String::from("generate result serialization"));
         let result = Object::new();
@@ -52,10 +71,13 @@ impl WasmGenerateResult {
             &"expansionRatio".into(),
             &self.expansion_ratio().into(),
         )?;
+        set(&result, &"resolution".into(), &self.resolution().into())?;
         set(
             &result,
             &"syntheticData".into(),
-            &self.synthetic_data_to_js(delimiter)?.into(),
+            &self
+                .synthetic_data_to_js(delimiter, join_multi_value_columns, long_form)?
+                .into(),
         )?;
 
         Ok(JsValue::from(result).unchecked_into::<JsGenerateResult>())

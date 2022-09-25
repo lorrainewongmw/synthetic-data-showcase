@@ -2,16 +2,17 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
+import type { IAttributesIntersection } from '@essex/sds-core'
 import type { Plugin } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import { memo, useCallback } from 'react'
 import { Bar } from 'react-chartjs-2'
-import { IAttributesIntersection } from 'sds-wasm'
+
 import {
 	useActualBarConfig,
 	useDataLabelsConfig,
 	useEstimatedBarConfig,
-} from './hooks'
+} from './hooks/index.js'
 
 export interface AttributeIntersectionValueChartProps {
 	items: IAttributesIntersection[]
@@ -55,21 +56,22 @@ export const AttributeIntersectionValueChart: React.FC<AttributeIntersectionValu
 
 		return (
 			<Bar
+				key={actual.toString() + estimated.toString()}
 				height={height}
 				data={{
 					labels: labels.length > 0 ? labels : [' '],
 					datasets: [
 						{
-							label: 'Actual',
-							data: actual,
-							xAxisID: 'xAxis',
-							...actualBarConfig,
-						},
-						{
 							label: 'Estimated',
 							data: estimated,
 							xAxisID: 'xAxis',
 							...estimatedBarConfig,
+						},
+						{
+							label: 'Actual',
+							data: actual,
+							xAxisID: 'xAxis',
+							...actualBarConfig,
 						},
 					],
 				}}
@@ -103,9 +105,10 @@ export const AttributeIntersectionValueChart: React.FC<AttributeIntersectionValu
 						},
 					},
 					animation: {
-						duration: 0,
+						duration: 800,
 					},
 					onClick: handleClick,
+					responsive: false,
 				}}
 			/>
 		)

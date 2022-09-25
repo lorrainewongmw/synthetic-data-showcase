@@ -2,17 +2,16 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import { TableMetadata } from '@data-wrangling-components/core'
+import type { TableMetadata } from '@data-wrangling-components/core'
 import { table } from 'arquero'
-import ColumnTable from 'arquero/dist/types/table/column-table'
-
-export const defaultSubjectID = 'RowID'
+import type ColumnTable from 'arquero/dist/types/table/column-table'
 
 export interface ICsvTableHeader {
 	name: string
 	fieldName: string
 	use: boolean
 	hasSensitiveZeros: boolean
+	spreadWithDelimiter: string | null
 }
 
 export interface ICsvContent {
@@ -29,5 +28,5 @@ export const defaultCsvContent: ICsvContent = {
 	columnsWithZeros: undefined,
 	delimiter: ',',
 	table: table({}),
-	subjectId: defaultSubjectID,
+	subjectId: undefined,
 }

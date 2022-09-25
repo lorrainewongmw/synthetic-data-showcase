@@ -1,47 +1,15 @@
 use super::aggregated_data::AggregatedData;
 use super::rows_aggregator::RowsAggregator;
-use super::typedefs::RecordsSet;
 use itertools::Itertools;
 use log::info;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::data_block::block::DataBlock;
-use crate::processing::aggregator::record_attrs_selector::RecordAttrsSelector;
+use crate::data_block::DataBlock;
+use crate::dp::{DpParameters, NoiseAggregator, NoisyCountThreshold};
 use crate::utils::math::calc_percentage;
-use crate::utils::reporting::ReportProgress;
+use crate::utils::reporting::{ReportProgress, StoppableResult};
 use crate::utils::threading::get_number_of_threads;
 use crate::utils::time::ElapsedDurationLogger;
-
-#[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
-
-/// Result of data aggregation for each combination
-#[cfg_attr(feature = "pyo3", pyclass)]
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AggregatedCount {
-    /// How many times the combination appears on the records
-    pub count: usize,
-    /// Which records this combinations is part of
-    pub contained_in_records: RecordsSet,
-}
-
-#[cfg(feature = "pyo3")]
-#[cfg_attr(feature = "pyo3", pymethods)]
-impl AggregatedCount {
-    /// How many times the combination appears on the records
-    #[getter]
-    fn count(&self) -> usize {
-        self.count
-    }
-
-    /// Which records this combinations is part of
-    /// This method will clone the data, so its recommended to have its result stored
-    /// in a local variable to avoid it being called multiple times
-    fn get_contained_in_records(&self) -> RecordsSet {
-        self.contained_in_records.clone()
-    }
-}
 
 /// Process a data block to produced aggregated data
 pub struct Aggregator {
@@ -57,69 +25,107 @@ impl Aggregator {
         Aggregator { data_block }
     }
 
-    /// Aggregates the data block and returns the aggregated data back
+    /// Compute the aggregate data for the `data_block` informed in
+    /// the constructor
     /// # Arguments
     /// * `reporting_length` - Calculate combinations from 1 up to `reporting_length`
-    /// * `sensitivity_threshold` - Sensitivity threshold to filter record attributes
-    /// (0 means no suppression)
     /// * `progress_reporter` - Will be used to report the processing
     /// progress (`ReportProgress` trait). If `None`, nothing will be reported
     pub fn aggregate<T>(
         &mut self,
         reporting_length: usize,
-        sensitivity_threshold: usize,
         progress_reporter: &mut Option<T>,
-    ) -> AggregatedData
+    ) -> StoppableResult<AggregatedData>
     where
         T: ReportProgress,
     {
         let _duration_logger = ElapsedDurationLogger::new("data aggregation");
         let normalized_reporting_length =
             self.data_block.normalize_reporting_length(reporting_length);
-        let length_range = (1..=normalized_reporting_length).collect::<Vec<usize>>();
-        let total_n_records = self.data_block.records.len();
+        let total_n_records = self.data_block.number_of_records();
         let total_n_records_f64 = total_n_records as f64;
 
         info!(
-            "aggregating data with reporting length = {}, sensitivity_threshold = {} and {} thread(s)",
-            normalized_reporting_length, sensitivity_threshold, get_number_of_threads()
+            "aggregating data with reporting length = {} and {} thread(s)",
+            normalized_reporting_length,
+            get_number_of_threads()
         );
 
-        let result = RowsAggregator::aggregate_all(
+        RowsAggregator::aggregate_all(
             total_n_records,
-            &mut self.build_rows_aggregators(&length_range, sensitivity_threshold),
+            normalized_reporting_length,
+            &mut self.build_rows_aggregators(normalized_reporting_length),
             progress_reporter,
+        )
+        .and_then(|result| {
+            Aggregator::update_aggregate_progress(
+                progress_reporter,
+                total_n_records,
+                total_n_records_f64,
+            )?;
+
+            info!(
+                "data aggregated resulting in {} distinct combinations...",
+                result.aggregates_count.len()
+            );
+
+            Ok(AggregatedData::new(
+                self.data_block.headers.clone(),
+                self.data_block.multi_value_column_metadata_map.clone(),
+                self.data_block.number_of_records(),
+                None,
+                result.aggregates_count,
+                result.records_sensitivity_by_len,
+                normalized_reporting_length,
+            ))
+        })
+    }
+
+    /// Compute the aggregate data for the `data_block` informed in
+    /// the constructor using differential privacy
+    /// # Arguments
+    /// * `reporting_length` - Calculate combinations from 1 up to `reporting_length`
+    /// * `dp_parameters` - Differential privacy parameters
+    /// * `threshold` - Threshold used to filter noisy counts
+    /// * `progress_reporter` - Will be used to report the processing
+    /// progress (`ReportProgress` trait). If `None`, nothing will be reported
+    pub fn aggregate_with_dp<T>(
+        &self,
+        reporting_length: usize,
+        dp_parameters: &DpParameters,
+        threshold: NoisyCountThreshold,
+        progress_reporter: &mut Option<T>,
+    ) -> StoppableResult<AggregatedData>
+    where
+        T: ReportProgress,
+    {
+        let _duration_logger = ElapsedDurationLogger::new("data aggregation with DP");
+        let normalized_reporting_length =
+            self.data_block.normalize_reporting_length(reporting_length);
+
+        info!(
+            "aggregating data with reporting length = {}, {} thread(s), dp parameters={:?}, threshold = {:?}",
+            normalized_reporting_length, get_number_of_threads(), dp_parameters, threshold
         );
 
-        Aggregator::update_aggregate_progress(
-            progress_reporter,
-            total_n_records,
-            total_n_records_f64,
-        );
+        let result = NoiseAggregator::new(
+            self.data_block.clone(),
+            reporting_length,
+            dp_parameters,
+            threshold,
+        )
+        .generate_noisy_aggregates(progress_reporter)?;
 
         info!(
             "data aggregated resulting in {} distinct combinations...",
             result.aggregates_count.len()
         );
-        info!(
-            "suppression ratio of aggregates is {:.2}%",
-            (1.0 - (result.selected_combs_count as f64 / result.all_combs_count as f64)) * 100.0
-        );
 
-        AggregatedData::new(
-            self.data_block.clone(),
-            result.aggregates_count,
-            result.records_sensitivity,
-            normalized_reporting_length,
-        )
+        Ok(result)
     }
 
     #[inline]
-    fn build_rows_aggregators<'length_range>(
-        &self,
-        length_range: &'length_range [usize],
-        sensitivity_threshold: usize,
-    ) -> Vec<RowsAggregator<'length_range>> {
+    fn build_rows_aggregators(&self, reporting_length: usize) -> Vec<RowsAggregator> {
         if self.data_block.records.is_empty() {
             return Vec::default();
         }
@@ -127,7 +133,6 @@ impl Aggregator {
         let chunk_size = ((self.data_block.records.len() as f64) / (get_number_of_threads() as f64))
             .ceil() as usize;
         let mut rows_aggregators: Vec<RowsAggregator> = Vec::default();
-        let attr_rows_map = Arc::new(self.data_block.calc_attr_rows());
 
         for c in &self
             .data_block
@@ -140,11 +145,7 @@ impl Aggregator {
             rows_aggregators.push(RowsAggregator::new(
                 self.data_block.clone(),
                 c.collect(),
-                RecordAttrsSelector::new(
-                    length_range,
-                    sensitivity_threshold,
-                    attr_rows_map.clone(),
-                ),
+                reporting_length,
             ))
         }
         rows_aggregators
@@ -155,11 +156,13 @@ impl Aggregator {
         progress_reporter: &mut Option<T>,
         n_processed: usize,
         total: f64,
-    ) where
+    ) -> StoppableResult<()>
+    where
         T: ReportProgress,
     {
-        if let Some(r) = progress_reporter {
-            r.report(calc_percentage(n_processed as f64, total));
-        }
+        progress_reporter
+            .as_mut()
+            .map(|r| r.report(calc_percentage(n_processed as f64, total)))
+            .unwrap_or_else(|| Ok(()))
     }
 }

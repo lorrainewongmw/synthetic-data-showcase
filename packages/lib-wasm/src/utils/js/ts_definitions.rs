@@ -2,78 +2,130 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_APPEND_CONTENT: &'static str = r#"
-export type ReportProgressCallback = (progress: number) => void;
+export type ReportProgressCallback = (progress: number) => boolean
 
-export type HeaderNames = string[];
+export type HeaderNames = string[]
+
+export interface IMultiValueColumns {
+  [headerName: string]: string
+}
+
+export interface ICsvDataParameters {
+  delimiter: string
+  subjectId?: string
+  useColumns: HeaderNames
+  multiValueColumns: IMultiValueColumns
+  sensitiveZeros: HeaderNames
+  recordLimit: number
+}
+
+export interface IAggregatedMetricByString {
+  [key: string]: number
+}
+
+export interface IAggregateStatistics {
+  numberOfRecordsWithRareCombinations: number
+  percentageOfRecordsWithRareCombinationsPerColumn: IAggregatedMetricByString
+  percentageOfRecordsWithRareCombinationsPerAttribute: IAggregatedMetricByString
+  numberOfRecords: number
+}
+
+export enum NoisyCountThresholdType {
+  Fixed = 'Fixed',
+  Adaptive = 'Adaptive'
+}
+
+export interface IInputNumberByLength {
+  [length: number]: number
+}
+
+export interface INoisyCountThreshold {
+  type: NoisyCountThresholdType
+  valuesByLen: IInputNumberByLength
+}
+
+export interface IDpParameters {
+  epsilon: number
+  delta: number
+  percentilePercentage: number
+  percentileEpsilonProportion: number
+  numberOfRecordsEpsilonProportion?: number
+  sigmaProportions?: number[]
+}
+
+export interface IOversamplingParameters {
+  oversamplingRatio?: number
+  oversamplingTries?: number
+}
+
+export interface IBaseSynthesisParameters {
+  resolution: usize,
+  cacheMaxSize?: number
+  emptyValue?: string
+}
 
 export interface IGenerateResult {
-  expansionRatio: number;
-  syntheticData: string;
+  expansionRatio: number
+  resolution: number
+  syntheticData: string
 }
 
-export interface IPrivacyRiskSummary {
-  totalNumberOfRecords: number
-  totalNumberOfCombinations: number
-  recordsWithUniqueCombinationsCount: number
-  recordsWithRareCombinationsCount: number
-  uniqueCombinationsCount: number
-  rareCombinationsCount: number
-  recordsWithUniqueCombinationsProportion: number
-  recordsWithRareCombinationsProportion: number
-  uniqueCombinationsProportion: number
-  rareCombinationsProportion: number
-}
-
-export interface IAggregateCountByLen {
+export interface IMetricByKey {
   [length: number]: number
 }
 
 export interface IAggregateResult {
-  reportingLength: number;
-  aggregatesData?: string;
-  rareCombinationsCountByLen: IAggregateCountByLen;
-  combinationsCountByLen: IAggregateCountByLen;
-  combinationsSumByLen: IAggregateCountByLen;
-  privacyRisk: IPrivacyRiskSummary;
+  reportingLength: number
+  aggregatesData?: string
 }
 
-export interface IPreservationByCountBucket {
-  size: number;
-  preservationSum: number;
-  lengthSum: number;
-  combinationCountSum: number;
-}
-
-export interface IPreservationByCountBuckets {
-  [bucket_index: number]: IPreservationByCountBucket;
-}
-
-export interface IPreservationByCount {
-  buckets: IPreservationByCountBuckets;
-  combinationLoss: number;
+export interface IMicrodataStatistics {
+  percentageOfSuppressedCombinations: number
+  percentageOfFabricatedCombinations: number
+  originalCombinationsCountMean: number
+  originalCombinationsCountMeanByLen: IMetricByKey
+  combinationsCountMeanAbsError: number
+  combinationsCountMeanAbsErrorByLen: IMetricByKey
+  meanProportionalError: number
+  meanProportionalErrorByBucket: IMetricByKey
+  meanCombinationLengthByBucket: IMetricByKey
+  recordExpansionPercentage: number
+  combinationsCountMeanByLen: IMetricByKey
+  totalNumberOfCombinationsByLen: IMetricByKey
+  numberOfRareCombinationsByLen: IMetricByKey
+  percentageOfRareCombinationsByLen: IMetricByKey
+  leakageCountByLen: IMetricByKey
+  leakagePercentageByLen: IMetricByKey
+  percentageOfRecordsWithUniqueCombinations: number
+  percentageOfRecordsWithRareCombinations: number
+  percentageOfUniqueCombinations: number
+  percentageOfRareCombinations: number
 }
 
 export interface IEvaluateResult {
-  sensitiveAggregateResult: IAggregateResult;
-  syntheticAggregateResult: IAggregateResult;
-  leakageCountByLen: IAggregateCountByLen;
-  fabricatedCountByLen: IAggregateCountByLen;
-  preservationByCount: IPreservationByCount;
-  recordExpansion: number;
+  reportingLength: usize
+  aggregateCountsStats: IMicrodataStatistics
+  sensitiveDataStats: IMicrodataStatistics
+  syntheticDataStats: IMicrodataStatistics
+  syntheticVsAggregateDataStats: IMicrodataStatistics
+}
+
+export interface INavigateResult {
+  headerNames: HeaderNames
 }
 
 export interface ISelectedAttributesByColumn {
-  [columnIndex: number]: Set<string>;
+  [columnIndex: number]: Set<string>
 }
 
 export interface IAttributesIntersection {
-  value: string;
-  estimatedCount: number;
-  actualCount?: number;
+  value: string
+  estimatedCount: number
+  actualCount?: number
 }
 
 export interface IAttributesIntersectionByColumn {
-  [columnIndex: number]: IAttributesIntersection[];
+  [columnIndex: number]: IAttributesIntersection[]
 }"#;
 
 #[wasm_bindgen]
@@ -84,29 +136,56 @@ extern "C" {
     #[wasm_bindgen(typescript_type = "HeaderNames")]
     pub type JsHeaderNames;
 
+    #[wasm_bindgen(typescript_type = "IMultiValueColumns")]
+    pub type JsMultiValueColumns;
+
+    #[wasm_bindgen(typescript_type = "ICsvDataParameters")]
+    pub type JsCsvDataParameters;
+
+    #[wasm_bindgen(typescript_type = "IAggregatedMetricByString")]
+    pub type JsAggregatedMetricByString;
+
+    #[wasm_bindgen(typescript_type = "IRecordsCountByStringKey")]
+    pub type JsRecordsCountByStringKey;
+
+    #[wasm_bindgen(typescript_type = "IAggregateStatistics")]
+    pub type JsAggregateStatistics;
+
+    #[wasm_bindgen(typescript_type = "NoisyCountThresholdType")]
+    pub type JsNoisyCountThresholdType;
+
+    #[wasm_bindgen(typescript_type = "IInputNumberByLength")]
+    pub type JsInputNumberByLength;
+
+    #[wasm_bindgen(typescript_type = "INoisyCountThreshold")]
+    pub type JsNoisyCountThreshold;
+
+    #[wasm_bindgen(typescript_type = "IDpParameters")]
+    pub type JsDpParameters;
+
+    #[wasm_bindgen(typescript_type = "IOversamplingParameters")]
+    pub type JsOversamplingParameters;
+
+    #[wasm_bindgen(typescript_type = "IBaseSynthesisParameters")]
+    pub type JsBaseSynthesisParameters;
+
     #[wasm_bindgen(typescript_type = "IGenerateResult")]
     pub type JsGenerateResult;
 
-    #[wasm_bindgen(typescript_type = "IPrivacyRiskSummary")]
-    pub type JsPrivacyRiskSummary;
-
-    #[wasm_bindgen(typescript_type = "IAggregateCountByLen")]
-    pub type JsAggregateCountByLen;
+    #[wasm_bindgen(typescript_type = "IMetricByKey")]
+    pub type JsMetricByKey;
 
     #[wasm_bindgen(typescript_type = "IAggregateResult")]
     pub type JsAggregateResult;
 
-    #[wasm_bindgen(typescript_type = "IPreservationByCountBucket")]
-    pub type JsPreservationByCountBucket;
-
-    #[wasm_bindgen(typescript_type = "IPreservationByCountBuckets")]
-    pub type JsPreservationByCountBuckets;
-
-    #[wasm_bindgen(typescript_type = "IPreservationByCount")]
-    pub type JsPreservationByCount;
+    #[wasm_bindgen(typescript_type = "IMicrodataStatistics")]
+    pub type JsMicrodataStatistics;
 
     #[wasm_bindgen(typescript_type = "IEvaluateResult")]
     pub type JsEvaluateResult;
+
+    #[wasm_bindgen(typescript_type = "INavigateResult")]
+    pub type JsNavigateResult;
 
     #[wasm_bindgen(typescript_type = "ISelectedAttributesByColumn")]
     pub type JsSelectedAttributesByColumn;

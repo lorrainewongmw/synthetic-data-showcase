@@ -1,4 +1,5 @@
 import time
+import math
 import datetime
 import logging
 import sds
@@ -19,7 +20,9 @@ def aggregate(config):
         config: options from the json config file, else default values.
     """
 
+    subject_id = config['subject_id']
     use_columns = config['use_columns']
+    multi_value_columns = config['multi_value_columns']
     reporting_length = config['reporting_length']
     reporting_resolution = config['reporting_resolution']
     record_limit = config['record_limit']
@@ -32,6 +35,17 @@ def aggregate(config):
     prefix = config['prefix']
     sensitive_aggregated_data_json = path.join(
         output_dir, f'{prefix}_sensitive_aggregated_data.json')
+    reportable_aggregated_data_json = path.join(
+        output_dir, f'{prefix}_reportable_aggregated_data.json')
+    dp_aggregates = config['dp_aggregates']
+    percentile_percentage = config['percentile_percentage']
+    percentile_epsilon_proportion = config['percentile_epsilon_proportion']
+    sigma_proportions = config['sigma_proportions']
+    noise_epsilon = config['noise_epsilon']
+    delta_factor = config['delta_factor']
+    noise_threshold_type = config['noise_threshold_type']
+    noise_threshold_values = config['noise_threshold_values']
+    number_of_records_epsilon_proportion = config['number_of_records_epsilon_proportion']
 
     logging.info(f'Aggregate {sensitive_microdata_path}')
     start_time = time.time()
@@ -39,38 +53,72 @@ def aggregate(config):
     sds_processor = sds.SDSProcessor(
         sensitive_microdata_path,
         sensitive_microdata_delimiter,
+        subject_id,
         use_columns,
+        multi_value_columns,
         sensitive_zeros,
         max(record_limit, 0)
     )
 
     aggregated_data = sds_processor.aggregate(
-        reporting_length,
-        0
+        reporting_length
     )
-    len_to_combo_count = aggregated_data.calc_combinations_count_by_len()
-    len_to_rare_count = aggregated_data.calc_rare_combinations_count_by_len(
+    len_to_combo_count = aggregated_data.calc_total_number_of_combinations_by_len()
+    len_to_rare_count = aggregated_data.calc_number_of_rare_combinations_by_len(
         reporting_resolution)
 
     aggregated_data.write_aggregates_count(
         sensitive_aggregates_path,
         '\t',
         ';',
-        reporting_resolution,
-        False
     )
-
     aggregated_data.write_to_json(sensitive_aggregated_data_json)
 
-    aggregated_data.protect_aggregates_count(reporting_resolution)
+    if dp_aggregates:
+        if not delta_factor:
+            delta_factor = math.log(sds_processor.number_of_records())
+
+        noise_delta = 1 / \
+            (delta_factor * sds_processor.number_of_records())
+
+        if noise_threshold_type == 'fixed':
+            aggregated_data = sds_processor.aggregate_with_dp_fixed_threshold(
+                reporting_length,
+                sds.DpParameters(
+                    noise_epsilon,
+                    noise_delta,
+                    percentile_percentage,
+                    percentile_epsilon_proportion,
+                    sigma_proportions,
+                    number_of_records_epsilon_proportion
+                ),
+                noise_threshold_values
+            )
+        elif noise_threshold_type == 'adaptive':
+            aggregated_data = sds_processor.aggregate_with_dp_adaptive_threshold(
+                reporting_length,
+                sds.DpParameters(
+                    noise_epsilon,
+                    noise_delta,
+                    percentile_percentage,
+                    percentile_epsilon_proportion,
+                    sigma_proportions,
+                    number_of_records_epsilon_proportion
+                ),
+                noise_threshold_values
+            )
+        else:
+            raise ValueError(
+                f'invalid noise_threshold_type: "{noise_threshold_type}"')
+    else:
+        aggregated_data.protect_with_k_anonymity(reporting_resolution)
 
     aggregated_data.write_aggregates_count(
         reportable_aggregates_path,
         '\t',
         ';',
-        reporting_resolution,
-        True
     )
+    aggregated_data.write_to_json(reportable_aggregated_data_json)
 
     leakage_tsv = path.join(
         output_dir, f'{prefix}_sensitive_rare_by_length.tsv')

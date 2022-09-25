@@ -8,19 +8,25 @@ import sds
 
 class Evaluator:
     def __init__(self, config):
+        self.config = config
         self.sds_evaluator = sds.Evaluator()
         self.use_columns = config['use_columns']
+        self.multi_value_columns = config['multi_value_columns']
         self.record_limit = max(config['record_limit'], 0)
         self.reporting_length = max(config['reporting_length'], 0)
         self.reporting_resolution = config['reporting_resolution']
         self.sensitive_microdata_path = config['sensitive_microdata_path']
         self.sensitive_microdata_delimiter = config['sensitive_microdata_delimiter']
         self.synthetic_microdata_path = config['synthetic_microdata_path']
+        self.synthetic_aggregates_path = config['synthetic_aggregates_path']
         self.sensitive_zeros = config['sensitive_zeros']
         self.output_dir = config['output_dir']
         self.prefix = config['prefix']
         self.sensitive_aggregated_data_json = path.join(
             self.output_dir, f'{self.prefix}_sensitive_aggregated_data.json'
+        )
+        self.reportable_aggregated_data_json = path.join(
+            self.output_dir, f'{self.prefix}_reportable_aggregated_data.json'
         )
         self.record_analysis_tsv = path.join(
             self.output_dir, f'{self.prefix}_sensitive_analysis_by_length.tsv'
@@ -43,38 +49,34 @@ class Evaluator:
         self.preservation_by_count_svg = path.join(
             self.output_dir, f'{self.prefix}_preservation_by_count.svg'
         )
+        self.proportional_error_by_count_svg = path.join(
+            self.output_dir, f'{self.prefix}_proportional_error_by_count.svg'
+        )
         self.preservation_by_length_tsv = path.join(
             self.output_dir, f'{self.prefix}_preservation_by_length.tsv'
         )
         self.preservation_by_length_svg = path.join(
             self.output_dir, f'{self.prefix}_preservation_by_length.svg'
         )
+        self.stats_synthetic_data_tsv = path.join(
+            self.output_dir, f'{self.prefix}_stats_synthetic_data.tsv'
+        )
+        self.stats_aggregate_counts_tsv = path.join(
+            self.output_dir, f'{self.prefix}_stats_aggregate_counts.tsv'
+        )
+        self.dp_aggregates = config['dp_aggregates']
 
     def _load_sensitive_aggregates(self):
-        if not path.exists(self.sensitive_aggregated_data_json):
-            logging.info('Computing sensitive aggregates...')
-            self.sen_sds_processor = sds.SDSProcessor(
-                self.sensitive_microdata_path,
-                self.sensitive_microdata_delimiter,
-                self.use_columns,
-                self.sensitive_zeros,
-                self.record_limit
-            )
-            self.sen_aggregated_data = self.sen_sds_processor.aggregate(
-                self.reporting_length,
-                0
-            )
-        else:
-            logging.info('Loading sensitive aggregates...')
-            self.sen_aggregated_data = sds.AggregatedData.read_from_json(
-                self.sensitive_aggregated_data_json
-            )
-            self.sen_sds_processor = sds.SDSProcessor.from_aggregated_data(
-                self.sen_aggregated_data
-            )
+        logging.info('Loading sensitive aggregates...')
+        self.sen_aggregated_data = sds.AggregatedData.read_from_json(
+            self.sensitive_aggregated_data_json
+        )
+        self.reporting_length = self.sen_aggregated_data.reporting_length
 
-        self.reporting_length = self.sen_sds_processor.normalize_reporting_length(
-            self.reporting_length
+    def _load_reportable_aggregates(self):
+        logging.info('Loading reportable aggregates...')
+        self.reportable_aggregated_data = sds.AggregatedData.read_from_json(
+            self.reportable_aggregated_data_json
         )
 
     def _load_synthetic_aggregates(self):
@@ -82,13 +84,19 @@ class Evaluator:
         self.syn_sds_processor = sds.SDSProcessor(
             self.synthetic_microdata_path,
             "\t",
-            self.use_columns,
+            None,   # the synthetic data does not have an ID
+            [],     # use all columns from synthetic file
+            self.multi_value_columns,
             self.sensitive_zeros,
-            self.record_limit
+            0       # use all records from synthetic file
         )
         self.syn_aggregated_data = self.syn_sds_processor.aggregate(
-            self.reporting_length,
-            0
+            self.reporting_length
+        )
+        self.syn_aggregated_data.write_aggregates_count(
+            self.synthetic_aggregates_path,
+            '\t',
+            ';',
         )
 
     def _do_records_analysis(self):
@@ -112,7 +120,7 @@ class Evaluator:
 
     def _write_parameters(self):
         logging.info('Writing evaluation parameters...')
-        total_sen = self.sen_sds_processor.protected_number_of_records(
+        total_sen = self.sen_aggregated_data.number_of_records_protected_with_k_anonymity(
             self.reporting_resolution
         )
         with open(self.parameters_tsv, 'w') as f:
@@ -141,8 +149,8 @@ class Evaluator:
     def _find_leakages(self):
         logging.info(
             'Looking for leakages from the sensitive dataset on the synthetic dataset...')
-        comb_counts = self.syn_aggregated_data.calc_combinations_count_by_len()
-        leakage_counts = self.sds_evaluator.calc_leakage_count(
+        comb_counts = self.syn_aggregated_data.calc_total_number_of_combinations_by_len()
+        leakage_counts = self.sds_evaluator.calc_leakage_count_by_len(
             self.sen_aggregated_data, self.syn_aggregated_data, self.reporting_resolution
         )
 
@@ -153,8 +161,6 @@ class Evaluator:
             for length in range(1, self.reporting_length + 1):
                 combo_count = comb_counts.get(length, 0)
                 leak_count = leakage_counts.get(length, 0)
-                # by design there should be no leakage
-                assert leak_count == 0
                 leak_prop = leak_count/combo_count if combo_count > 0 else 0
                 f.write('\t'.join(
                     [str(length), str(combo_count), str(leak_count), str(leak_prop)])+'\n'
@@ -181,6 +187,9 @@ class Evaluator:
         preservation_by_count = self.sds_evaluator.calc_preservation_by_count(
             self.sen_aggregated_data, self.syn_aggregated_data, self.reporting_resolution
         )
+
+        self.config['mean_proportional_error'] = preservation_by_count.calc_mean_proportional_error()
+
         preservation_by_count.write_preservation_by_count(
             self.preservation_by_count_tsv, '\t'
         )
@@ -196,6 +205,22 @@ class Evaluator:
             darker_color='green',
             stats_tsv=self.preservation_by_count_tsv,
             stats_svg=self.preservation_by_count_svg,
+            delimiter='\t',
+            style='whitegrid',
+            palette='magma'
+        )
+
+        util.plotStats(
+            x_axis='syn_count_bucket',
+            x_axis_title='Count of Filtered Synthetic Records',
+            y_bar='mean_combo_length',
+            y_bar_title='Mean Length of Combinations',
+            y_line='mean_proportional_error',
+            y_line_title='Proportional error',
+            color='lightgreen',
+            darker_color='green',
+            stats_tsv=self.preservation_by_count_tsv,
+            stats_svg=self.proportional_error_by_count_svg,
             delimiter='\t',
             style='whitegrid',
             palette='magma'
@@ -226,6 +251,63 @@ class Evaluator:
             palette='magma'
         )
 
+    def _gen_stats_summary(self, src, target):
+        suppressed_percentage = self.sds_evaluator.calc_percentage_of_suppressed_combinations(
+            src, target)
+        fabricated_percentage = self.sds_evaluator.calc_percentage_of_fabricated_combinations(
+            src, target
+        )
+        mean_error_by_len = self.sds_evaluator.calc_combinations_count_mean_abs_error_by_len(
+            src, target
+        )
+        overall_error = self.sds_evaluator.calc_combinations_count_mean_abs_error(
+            src, target
+        )
+        src_mean_count_by_len = src.calc_combinations_count_mean_by_len()
+        overall_src_mean_count = src.calc_combinations_count_mean()
+
+        summary = [['Metric', 'Value']]
+        summary.append(
+            [f'Suppressed combinations %', f'{suppressed_percentage:.2f} %'])
+        summary.append(
+            [f'Fabricated combinations %', f'{fabricated_percentage:.2f} %'])
+        for l in sorted(mean_error_by_len.keys()):
+            summary.append([f'{l}-counts mean value +/- mean error',
+                            f'{src_mean_count_by_len[l]:.2f} +/- {mean_error_by_len[l]:.2f}'])
+        summary.append(
+            [f'Mean value +/- Mean error', f'{overall_src_mean_count:.2f} +/- {overall_error:.2f}'])
+
+        return summary
+
+    def _calculate_synthetic_data_stats(self):
+        logging.info('Calculating synthetic data stats...')
+        summary = self._gen_stats_summary(
+            self.sen_aggregated_data, self.syn_aggregated_data
+        )
+        mean_proportional_error = self.config['mean_proportional_error']
+        record_expansion_percentage = self.sds_evaluator.calc_record_expansion_percentage(
+            self.sen_aggregated_data, self.syn_aggregated_data
+        )
+
+        summary.append(
+            ['Expansion Ratio', f'{record_expansion_percentage:.2f} %'])
+        summary.append(['Mean Proportional error %',
+                        f'{mean_proportional_error * 100.0:.2f} %'])
+
+        with open(self.stats_synthetic_data_tsv, 'w+') as f:
+            for line in summary:
+                f.write('\t'.join(line) + '\n')
+
+    def _calculate_aggregate_counts_stats(self):
+        logging.info('Calculating aggregate counts stats...')
+        summary = self._gen_stats_summary(
+            self.sen_aggregated_data, self.reportable_aggregated_data
+        )
+
+        with open(self.stats_aggregate_counts_tsv, 'w+') as f:
+            for line in summary:
+                f.write('\t'.join(line) + '\n')
+
     def run(self):
         logging.info(
             f'Evaluate {self.synthetic_microdata_path} vs {self.sensitive_microdata_path}'
@@ -234,12 +316,15 @@ class Evaluator:
 
         self._load_sensitive_aggregates()
         self._load_synthetic_aggregates()
+        self._load_reportable_aggregates()
         self._do_records_analysis()
         self._compare_synthetic_and_sensitive_rare()
         self._write_parameters()
         self._find_leakages()
         self._calculate_preservation_by_count()
         self._calculate_preservation_by_length()
+        self._calculate_synthetic_data_stats()
+        self._calculate_aggregate_counts_stats()
 
         logging.info(
             f'Evaluated {self.synthetic_microdata_path} vs {self.sensitive_microdata_path}, took {datetime.timedelta(seconds = time.time() - start_time)}s')

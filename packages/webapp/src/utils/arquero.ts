@@ -2,9 +2,11 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
+import type { IMultiValueColumns } from '@essex/sds-core'
 import { fromCSV, table } from 'arquero'
-import ColumnTable from 'arquero/dist/types/table/column-table'
-import { ICsvContent, ICsvTableHeader } from '~models'
+import type ColumnTable from 'arquero/dist/types/table/column-table'
+
+import type { ICsvContent, ICsvTableHeader } from '~models'
 
 /**
  * Create a table from a set of compute results.
@@ -36,7 +38,7 @@ export function fromCsvData(
 export function columnIndexesWithZeros(table: ColumnTable): number[] {
 	return table.columnNames().reduce((acc, name, idx) => {
 		const values = table.array(name)
-		if (values.some(v => v === 0)) {
+		if (values.some(v => v?.toString()?.includes('0'))) {
 			acc.push(idx)
 		}
 		return acc
@@ -63,8 +65,9 @@ export function tableHeaders(
 			: ({
 					name: h,
 					fieldName: i.toString(),
-					use: true,
+					use: false,
 					hasSensitiveZeros: false,
+					spreadWithDelimiter: null,
 			  } as ICsvTableHeader),
 	)
 }
@@ -74,9 +77,26 @@ export function tableHeaders(
  * @param table
  * @param onlyUsed
  */
-export function headers(data: ICsvContent, onlyUsed = false): string[] {
-	const filtered = onlyUsed ? data.headers.filter(h => h.use) : data.headers
-	return filtered.map(h => h.name)
+export function usableHeaders(data: ICsvContent): ICsvTableHeader[] {
+	return data.headers.filter(h => h.use && h.name !== data.subjectId)
+}
+
+/**
+ * Get an object mapping the multi value columns in data (Column Name -> Delimiter)
+ * @param table
+ * @param onlyUsed
+ */
+export function usableMultiValueColumns(data: ICsvContent): IMultiValueColumns {
+	const ret = {}
+
+	data.headers
+		.filter(
+			h => h.use && h.name !== data.subjectId && h.spreadWithDelimiter !== null,
+		)
+		.forEach(h => {
+			ret[h.name] = h.spreadWithDelimiter
+		})
+	return ret
 }
 
 /**

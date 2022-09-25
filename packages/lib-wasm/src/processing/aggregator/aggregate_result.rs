@@ -1,35 +1,59 @@
 use js_sys::{Object, Reflect::set};
-use sds_core::{
-    processing::aggregator::aggregated_data::AggregatedData, utils::time::ElapsedDurationLogger,
-};
-use std::ops::{Deref, DerefMut};
+use sds_core::{processing::aggregator::AggregatedData, utils::time::ElapsedDurationLogger};
+use std::{ops::Deref, sync::Arc};
 use wasm_bindgen::{prelude::*, JsCast};
 
-use crate::utils::js::ts_definitions::{
-    JsAggregateCountByLen, JsAggregateResult, JsPrivacyRiskSummary, JsResult,
+use crate::{
+    processing::aggregator::WasmAggregateStatistics,
+    utils::js::{JsAggregateResult, JsResult},
 };
 
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct WasmAggregateResult {
-    aggregated_data: AggregatedData,
+    pub(crate) aggregated_data: Arc<AggregatedData>,
 }
 
 impl WasmAggregateResult {
     #[inline]
     pub fn default() -> WasmAggregateResult {
         WasmAggregateResult {
-            aggregated_data: AggregatedData::default(),
+            aggregated_data: Arc::new(AggregatedData::default()),
         }
     }
 
     #[inline]
-    pub fn new(aggregated_data: AggregatedData) -> WasmAggregateResult {
+    pub fn new(aggregated_data: Arc<AggregatedData>) -> WasmAggregateResult {
         WasmAggregateResult { aggregated_data }
     }
 }
 
 #[wasm_bindgen]
 impl WasmAggregateResult {
+    #[wasm_bindgen(js_name = "protectWithKAnonymity")]
+    pub fn protect_with_k_anonymity(&self, resolution: usize) -> WasmAggregateResult {
+        let mut new_aggregated_data = (*self.aggregated_data).clone();
+
+        new_aggregated_data.protect_with_k_anonymity(resolution);
+        WasmAggregateResult::new(Arc::new(new_aggregated_data))
+    }
+
+    #[wasm_bindgen(js_name = "statistics")]
+    pub fn statistics(&self, resolution: usize) -> WasmAggregateStatistics {
+        WasmAggregateStatistics {
+            number_of_records_with_rare_combinations: self
+                .aggregated_data
+                .calc_number_of_records_with_rare_combinations(resolution),
+            percentage_of_records_with_rare_combinations_per_column: self
+                .aggregated_data
+                .calc_percentage_of_records_with_rare_combinations_per_column_str(resolution),
+            percentage_of_records_with_rare_combinations_per_attribute: self
+                .aggregated_data
+                .calc_percentage_of_records_with_rare_combinations_per_attribute_str(resolution),
+            number_of_records: self.aggregated_data.number_of_records,
+        }
+    }
+
     #[wasm_bindgen(getter)]
     #[wasm_bindgen(js_name = "reportingLength")]
     pub fn reporting_length(&self) -> usize {
@@ -41,108 +65,10 @@ impl WasmAggregateResult {
         &self,
         aggregates_delimiter: char,
         combination_delimiter: &str,
-        resolution: usize,
-        counts_are_protected: bool,
     ) -> JsResult<String> {
         self.aggregated_data
-            .write_aggregates_to_string(
-                aggregates_delimiter,
-                combination_delimiter,
-                resolution,
-                counts_are_protected,
-            )
+            .write_aggregates_to_string(aggregates_delimiter, combination_delimiter)
             .map_err(|err| JsValue::from(err.to_string()))
-    }
-
-    #[wasm_bindgen(js_name = "rareCombinationsCountByLenToJs")]
-    pub fn rare_combinations_count_by_len_to_js(
-        &self,
-        resolution: usize,
-    ) -> JsResult<JsAggregateCountByLen> {
-        let count = self
-            .aggregated_data
-            .calc_rare_combinations_count_by_len(resolution);
-
-        Ok(JsValue::from_serde(&count)
-            .map_err(|err| JsValue::from(err.to_string()))?
-            .unchecked_into::<JsAggregateCountByLen>())
-    }
-
-    #[wasm_bindgen(js_name = "combinationsCountByLenToJs")]
-    pub fn combinations_count_by_len_to_js(&self) -> JsResult<JsAggregateCountByLen> {
-        let count = self.aggregated_data.calc_combinations_count_by_len();
-
-        Ok(JsValue::from_serde(&count)
-            .map_err(|err| JsValue::from(err.to_string()))?
-            .unchecked_into::<JsAggregateCountByLen>())
-    }
-
-    #[wasm_bindgen(js_name = "combinationsSumByLenToJs")]
-    pub fn combinations_sum_by_len_to_js(&self) -> JsResult<JsAggregateCountByLen> {
-        let count = self.aggregated_data.calc_combinations_sum_by_len();
-
-        Ok(JsValue::from_serde(&count)
-            .map_err(|err| JsValue::from(err.to_string()))?
-            .unchecked_into::<JsAggregateCountByLen>())
-    }
-
-    #[wasm_bindgen(js_name = "privacyRiskToJs")]
-    pub fn privacy_risk_to_js(&self, resolution: usize) -> JsResult<JsPrivacyRiskSummary> {
-        let pr = self.aggregated_data.calc_privacy_risk(resolution);
-        let result = Object::new();
-
-        set(
-            &result,
-            &"totalNumberOfRecords".into(),
-            &pr.total_number_of_records.into(),
-        )?;
-        set(
-            &result,
-            &"totalNumberOfCombinations".into(),
-            &pr.total_number_of_combinations.into(),
-        )?;
-        set(
-            &result,
-            &"recordsWithUniqueCombinationsCount".into(),
-            &pr.records_with_unique_combinations_count.into(),
-        )?;
-        set(
-            &result,
-            &"recordsWithRareCombinationsCount".into(),
-            &pr.records_with_rare_combinations_count.into(),
-        )?;
-        set(
-            &result,
-            &"uniqueCombinationsCount".into(),
-            &pr.unique_combinations_count.into(),
-        )?;
-        set(
-            &result,
-            &"rareCombinationsCount".into(),
-            &pr.rare_combinations_count.into(),
-        )?;
-        set(
-            &result,
-            &"recordsWithUniqueCombinationsProportion".into(),
-            &pr.records_with_unique_combinations_proportion.into(),
-        )?;
-        set(
-            &result,
-            &"recordsWithRareCombinationsProportion".into(),
-            &pr.records_with_rare_combinations_proportion.into(),
-        )?;
-        set(
-            &result,
-            &"uniqueCombinationsProportion".into(),
-            &pr.unique_combinations_proportion.into(),
-        )?;
-        set(
-            &result,
-            &"rareCombinationsProportion".into(),
-            &pr.rare_combinations_proportion.into(),
-        )?;
-
-        Ok(result.unchecked_into::<JsPrivacyRiskSummary>())
     }
 
     #[wasm_bindgen(js_name = "toJs")]
@@ -150,9 +76,6 @@ impl WasmAggregateResult {
         &self,
         aggregates_delimiter: char,
         combination_delimiter: &str,
-        resolution: usize,
-        counts_are_protected: bool,
-        include_aggregates_data: bool,
     ) -> JsResult<JsAggregateResult> {
         let _duration_logger =
             ElapsedDurationLogger::new(String::from("aggregate result serialization"));
@@ -163,49 +86,15 @@ impl WasmAggregateResult {
             &"reportingLength".into(),
             &self.reporting_length().into(),
         )?;
-        if include_aggregates_data {
-            set(
-                &result,
-                &"aggregatesData".into(),
-                &self
-                    .aggregates_count_to_js(
-                        aggregates_delimiter,
-                        combination_delimiter,
-                        resolution,
-                        counts_are_protected,
-                    )?
-                    .into(),
-            )?;
-        }
         set(
             &result,
-            &"rareCombinationsCountByLen".into(),
+            &"aggregatesData".into(),
             &self
-                .rare_combinations_count_by_len_to_js(resolution)?
+                .aggregates_count_to_js(aggregates_delimiter, combination_delimiter)?
                 .into(),
-        )?;
-        set(
-            &result,
-            &"combinationsCountByLen".into(),
-            &self.combinations_count_by_len_to_js()?.into(),
-        )?;
-        set(
-            &result,
-            &"combinationsSumByLen".into(),
-            &self.combinations_sum_by_len_to_js()?.into(),
-        )?;
-        set(
-            &result,
-            &"privacyRisk".into(),
-            &self.privacy_risk_to_js(resolution)?.into(),
         )?;
 
         Ok(JsValue::from(result).unchecked_into::<JsAggregateResult>())
-    }
-
-    #[wasm_bindgen(js_name = "protectAggregatesCount")]
-    pub fn protect_aggregates_count(&mut self, resolution: usize) {
-        self.aggregated_data.protect_aggregates_count(resolution)
     }
 }
 
@@ -214,11 +103,5 @@ impl Deref for WasmAggregateResult {
 
     fn deref(&self) -> &Self::Target {
         &self.aggregated_data
-    }
-}
-
-impl DerefMut for WasmAggregateResult {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.aggregated_data
     }
 }

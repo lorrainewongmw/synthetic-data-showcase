@@ -14,7 +14,9 @@
 			"~states/*": ["src/states/*"],
 			"~workers/*": ["./src/workers/*"],
 			"~ui-tooltips": ["src/ui-tooltips/index.ts"],
-			"~ui-tooltips/*": ["src/ui-tooltips/*"]
+			"~ui-tooltips/*": ["src/ui-tooltips/*"],
+			"~pages": ["src/pages/index.ts"],
+			"~pages/*": ["src/pages/*"]
 		},
 		"allowJs": true,
 		"lib": ["ESNext", "DOM"],
@@ -26,7 +28,10 @@
 		"esModuleInterop": true,
 		"allowSyntheticDefaultImports": true,
 		"skipLibCheck": true,
-		"noImplicitAny": false
+		"noImplicitAny": false,
+		"typeRoots": ["./node_modules/@types/", "./types"],
+		"noErrorTruncation": true,
+		"downlevelIteration": true
 	},
 	"include": ["src/**/*"],
 	"exclude": ["**/__tests__/**"]

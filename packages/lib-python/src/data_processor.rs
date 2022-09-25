@@ -1,132 +1,204 @@
 use csv::ReaderBuilder;
+use log::{log_enabled, Level::Debug};
 use pyo3::prelude::*;
 use sds_core::{
-    data_block::{
-        block::DataBlock, csv_block_creator::CsvDataBlockCreator, csv_io_error::CsvIOError,
-        data_block_creator::DataBlockCreator,
-    },
+    data_block::{CsvDataBlockCreator, CsvDataBlockCreatorError, DataBlock, DataBlockCreator},
+    dp::DpParameters,
+    dp::{InputValueByLen, NoisyCountThreshold},
     processing::{
-        aggregator::{aggregated_data::AggregatedData, Aggregator},
-        generator::{generated_data::GeneratedData, Generator, SynthesisMode},
+        aggregator::{AggregatedData, Aggregator},
+        generator::{GeneratedData, Generator, OversamplingParameters},
     },
-    utils::reporting::LoggerProgressReporter,
+    utils::reporting::{LoggerProgressReporter, StoppableResult},
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 #[pyclass]
-/// Processor exposing the main features
 pub struct SDSProcessor {
     data_block: Arc<DataBlock>,
 }
 
+impl SDSProcessor {
+    #[inline]
+    fn aggregate_with_dp(
+        &self,
+        reporting_length: usize,
+        dp_parameters: &DpParameters,
+        threshold: NoisyCountThreshold,
+    ) -> StoppableResult<AggregatedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
+        } else {
+            None
+        };
+        let aggregator = Aggregator::new(self.data_block.clone());
+        aggregator.aggregate_with_dp(
+            reporting_length,
+            dp_parameters,
+            threshold,
+            &mut progress_reporter,
+        )
+    }
+}
+
 #[pymethods]
 impl SDSProcessor {
-    /// Creates a new processor by reading the content of a given file
-    /// # Arguments
-    /// * `path` - File to be read to build the data block
-    /// * `delimiter` - CSV/TSV separator for the content on `path`
-    /// * `use_columns` - Column names to be used (if `[]` use all columns)
-    /// * `sensitive_zeros` - Column names containing sensitive zeros
-    /// (if `[]` no columns are considered to have sensitive zeros)
-    /// * `record_limit` - Use only the first `record_limit` records (if `0` use all records)
+    #[inline]
     #[new]
     pub fn new(
         path: &str,
         delimiter: char,
+        subject_id: Option<String>,
         use_columns: Vec<String>,
+        multi_value_columns: HashMap<String, String>,
         sensitive_zeros: Vec<String>,
         record_limit: usize,
-    ) -> Result<SDSProcessor, CsvIOError> {
-        match CsvDataBlockCreator::create(
+    ) -> Result<SDSProcessor, CsvDataBlockCreatorError> {
+        CsvDataBlockCreator::create(
             ReaderBuilder::new()
                 .delimiter(delimiter as u8)
                 .from_path(path),
+            subject_id,
             &use_columns,
+            &multi_value_columns,
             &sensitive_zeros,
             record_limit,
-        ) {
-            Ok(data_block) => Ok(SDSProcessor { data_block }),
-            Err(err) => Err(CsvIOError::new(err)),
-        }
-    }
-
-    #[staticmethod]
-    /// Load the SDS Processor for the data block linked to `aggregated_data`
-    pub fn from_aggregated_data(aggregated_data: &AggregatedData) -> SDSProcessor {
-        SDSProcessor {
-            data_block: aggregated_data.data_block.clone(),
-        }
+        )
+        .map(|data_block| SDSProcessor { data_block })
     }
 
     #[inline]
-    /// Returns the number of records on the data block
     pub fn number_of_records(&self) -> usize {
         self.data_block.number_of_records()
     }
 
-    #[inline]
-    /// Returns the number of records on the data block protected by `resolution`
-    pub fn protected_number_of_records(&self, resolution: usize) -> usize {
-        self.data_block.protected_number_of_records(resolution)
+    pub fn aggregate(&self, reporting_length: usize) -> StoppableResult<AggregatedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
+        } else {
+            None
+        };
+        let mut aggregator = Aggregator::new(self.data_block.clone());
+        aggregator.aggregate(reporting_length, &mut progress_reporter)
     }
 
-    #[inline]
-    /// Normalizes the reporting length based on the number of selected headers.
-    /// Returns the normalized value
-    /// # Arguments
-    /// * `reporting_length` - Reporting length to be normalized (0 means use all columns)
-    pub fn normalize_reporting_length(&self, reporting_length: usize) -> usize {
-        self.data_block.normalize_reporting_length(reporting_length)
-    }
-
-    /// Builds the aggregated data for the content
-    /// using the specified `reporting_length` and `sensitivity_threshold`.
-    /// The result is written to `sensitive_aggregates_path` and `reportable_aggregates_path`.
-    /// # Arguments
-    /// * `reporting_length` - Maximum length to compute attribute combinations
-    /// * `sensitivity_threshold` - Sensitivity threshold to filter record attributes
-    /// (0 means no suppression)
-    pub fn aggregate(
+    fn aggregate_with_dp_fixed_threshold(
         &self,
         reporting_length: usize,
-        sensitivity_threshold: usize,
-    ) -> AggregatedData {
-        let mut progress_reporter: Option<LoggerProgressReporter> = None;
-        let mut aggregator = Aggregator::new(self.data_block.clone());
-        aggregator.aggregate(
+        dp_parameters: &DpParameters,
+        threshold: InputValueByLen<f64>,
+    ) -> StoppableResult<AggregatedData> {
+        self.aggregate_with_dp(
             reporting_length,
-            sensitivity_threshold,
+            dp_parameters,
+            NoisyCountThreshold::Fixed(threshold),
+        )
+    }
+
+    fn aggregate_with_dp_adaptive_threshold(
+        &self,
+        reporting_length: usize,
+        dp_parameters: &DpParameters,
+        threshold: InputValueByLen<f64>,
+    ) -> StoppableResult<AggregatedData> {
+        self.aggregate_with_dp(
+            reporting_length,
+            dp_parameters,
+            NoisyCountThreshold::Adaptive(threshold),
+        )
+    }
+
+    pub fn generate_row_seeded(
+        &self,
+        resolution: usize,
+        cache_max_size: usize,
+        empty_value: &str,
+    ) -> StoppableResult<GeneratedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
+        } else {
+            None
+        };
+        let generator = Generator::default();
+
+        generator.generate_row_seeded(
+            &self.data_block,
+            resolution,
+            cache_max_size,
+            empty_value,
             &mut progress_reporter,
         )
     }
 
-    /// Synthesizes the content using the specified `resolution` and
-    /// returns the generated data
-    /// # Arguments
-    /// * `cache_max_size` - Maximum cache size used during the synthesis process
-    /// * `resolution` - Reporting resolution to be used
-    /// * `empty_value` - Empty values on the synthetic data will be represented by this
-    /// * `seeded` - True for seeded synthesis, False for unseeded
-    pub fn generate(
+    pub fn generate_unseeded(
         &self,
-        cache_max_size: usize,
         resolution: usize,
-        empty_value: String,
-        seeded: bool,
-    ) -> GeneratedData {
-        let mut progress_reporter: Option<LoggerProgressReporter> = None;
-        let mut generator = Generator::new(self.data_block.clone());
-        let mode = if seeded {
-            SynthesisMode::Seeded
+        cache_max_size: usize,
+        empty_value: &str,
+    ) -> StoppableResult<GeneratedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
         } else {
-            SynthesisMode::Unseeded
+            None
         };
+        let generator = Generator::default();
 
-        generator.generate(
+        generator.generate_unseeded(
+            &self.data_block,
             resolution,
             cache_max_size,
             empty_value,
-            mode,
+            &mut progress_reporter,
+        )
+    }
+
+    pub fn generate_value_seeded(
+        &self,
+        resolution: usize,
+        cache_max_size: usize,
+        empty_value: &str,
+        oversampling_parameters: Option<OversamplingParameters>,
+    ) -> StoppableResult<GeneratedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
+        } else {
+            None
+        };
+        let generator = Generator::default();
+
+        generator.generate_value_seeded(
+            &self.data_block,
+            resolution,
+            cache_max_size,
+            empty_value,
+            oversampling_parameters,
+            &mut progress_reporter,
+        )
+    }
+
+    pub fn generate_aggregate_seeded(
+        &self,
+        empty_value: &str,
+        aggregated_data: AggregatedData,
+        use_synthetic_counts: bool,
+        weight_selection_percentile: Option<usize>,
+        aggregate_counts_scale_factor: Option<f64>,
+        target_number_of_records: Option<usize>,
+    ) -> StoppableResult<GeneratedData> {
+        let mut progress_reporter = if log_enabled!(Debug) {
+            Some(LoggerProgressReporter::new(Debug))
+        } else {
+            None
+        };
+        let generator = Generator::default();
+
+        generator.generate_aggregate_seeded(
+            empty_value,
+            Arc::new(aggregated_data),
+            use_synthetic_counts,
+            weight_selection_percentile,
+            aggregate_counts_scale_factor,
+            target_number_of_records,
             &mut progress_reporter,
         )
     }

@@ -3,7 +3,8 @@
 use data_processor::SDSProcessor;
 use pyo3::prelude::*;
 use sds_core::{
-    processing::{aggregator::aggregated_data, evaluator},
+    dp,
+    processing::{aggregator, evaluator, generator},
     utils::threading,
 };
 
@@ -17,8 +18,10 @@ pub mod data_processor;
 fn sds(py: Python, m: &PyModule) -> PyResult<()> {
     env_logger::init();
     m.add_class::<SDSProcessor>()?;
-    threading::register(py, m)?;
-    aggregated_data::register(py, m)?;
-    evaluator::register(py, m)?;
+    threading::register_pyo3(py, m)?;
+    dp::register_pyo3(py, m)?;
+    aggregator::register_pyo3(py, m)?;
+    evaluator::register_pyo3(py, m)?;
+    generator::register_pyo3(py, m)?;
     Ok(())
 }

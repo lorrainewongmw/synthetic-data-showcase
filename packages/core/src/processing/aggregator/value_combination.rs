@@ -1,23 +1,18 @@
+use super::typedefs::ValueCombinationRefSet;
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
-use std::{
-    fmt::Display,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{fmt::Display, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 
 use crate::data_block::{
-    typedefs::DataBlockHeadersSlice,
-    value::{DataBlockValue, ParseDataBlockValueError},
+    DataBlockHeaders, DataBlockHeadersSlice, DataBlockValue, ParseDataBlockValueError,
 };
 
-const COMBINATIONS_DELIMITER: char = ';';
+/// Delimiter between attributes that form a value combination
+pub const COMBINATIONS_DELIMITER: char = ';';
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 /// Wraps a vector of data block values representing a value
 /// combination (sorted by `{header_name}:{block_value}`)
 pub struct ValueCombination {
@@ -47,7 +42,7 @@ impl ValueCombination {
     /// * `headers` - Data block headers
     /// * `combination_delimiter` - Delimiter used to join combinations
     #[inline]
-    pub fn format_str_using_headers(
+    pub fn as_str_using_headers(
         &self,
         headers: &DataBlockHeadersSlice,
         combination_delimiter: &str,
@@ -55,13 +50,53 @@ impl ValueCombination {
         let mut str = String::default();
 
         if let Some(comb) = self.combination.get(0) {
-            str.push_str(&comb.format_str_using_headers(headers));
+            str.push_str(&comb.as_str_using_headers(headers));
         }
         for comb in self.combination.iter().skip(1) {
             str += combination_delimiter;
-            str.push_str(&comb.format_str_using_headers(headers));
+            str.push_str(&comb.as_str_using_headers(headers));
         }
         str
+    }
+
+    /// Creates a new set containing the combination values
+    #[inline]
+    pub fn build_ref_set(&self) -> ValueCombinationRefSet {
+        self.combination.iter().collect()
+    }
+
+    /// Checks whether `other` is part of the value combination or not
+    #[inline]
+    pub fn contains_comb(&self, other: &ValueCombination) -> bool {
+        ValueCombination::ref_set_contains_other(&self.build_ref_set(), other)
+    }
+
+    /// Checks whether there is any value for `column_index``in the combination
+    #[inline]
+    pub fn contains_column(&self, column_index: usize) -> bool {
+        self.combination
+            .iter()
+            .any(|attr| attr.column_index == column_index)
+    }
+
+    /// Checks whether `other` is part of `value_set` or not
+    #[inline]
+    pub fn ref_set_contains_other(
+        value_set: &ValueCombinationRefSet,
+        other: &ValueCombination,
+    ) -> bool {
+        if other.len() > value_set.len() {
+            return false;
+        }
+        other.iter().all(|v| value_set.contains(v))
+    }
+
+    /// Adds `value` to the value combination, keeping it sorted
+    #[inline]
+    pub fn extend(&mut self, value: Arc<DataBlockValue>, headers: &DataBlockHeaders) {
+        self.combination.push(value);
+        self.combination
+            .sort_by_key(|k| k.as_str_using_headers(headers));
     }
 }
 
@@ -96,12 +131,6 @@ impl Deref for ValueCombination {
 
     fn deref(&self) -> &Self::Target {
         &self.combination
-    }
-}
-
-impl DerefMut for ValueCombination {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.combination
     }
 }
 

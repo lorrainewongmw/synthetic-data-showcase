@@ -2,15 +2,17 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import { ActionButton, IIconProps } from '@fluentui/react'
-import { FC, ChangeEvent, useRef } from 'react'
+import type { IIconProps } from '@fluentui/react'
+import { ActionButton } from '@fluentui/react'
+import type { ChangeEvent, FC, PropsWithChildren } from 'react'
+import { useRef } from 'react'
 
 const openFileIcon: IIconProps = { iconName: 'FabricOpenFolderHorizontal' }
 
-export interface FileInputButtonProps {
+export type FileInputButtonProps = PropsWithChildren<{
 	onChange: (e: ChangeEvent<HTMLInputElement>) => void
 	disabled?: boolean
-}
+}>
 
 export const FileInputButton: FC<FileInputButtonProps> = ({
 	onChange,

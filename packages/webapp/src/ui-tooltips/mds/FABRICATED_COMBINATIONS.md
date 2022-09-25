@@ -1,0 +1,3 @@
+Percentage of attribute combinations that **do not exist in the sensitive microdata**, but **were created in the aggregate or synthetic data** (when analyzed up to the defined **`analysis length`**).
+
+By design, this should always be zero (under k-anonymity) or as small as possible (under differential privacy). However, for the **`Aggregate Seeded`** and **`DP Aggregate Seeded`** methods, this guarantee only holds for combination lengths up to and including the aggregation limit &ndash; longer attribute combinations are not available and so cannot be compared.

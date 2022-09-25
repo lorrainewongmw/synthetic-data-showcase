@@ -2,16 +2,22 @@
  * Copyright (c) Microsoft. All rights reserved.
  * Licensed under the MIT license. See LICENSE file in the project.
  */
-import { Stack, Label, Spinner } from '@fluentui/react'
+import type {
+	IAttributesIntersection,
+	ISelectedAttributesByColumn,
+} from '@essex/sds-core'
+import { Label, Stack } from '@fluentui/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { IAttributesIntersection } from 'sds-wasm'
-import { useMaxCount } from './hooks'
+
 import { AttributeIntersectionValueChart } from '~components/Charts/AttributeIntersectionValueChart'
 import { useStopPropagation } from '~components/Charts/hooks'
-import { SetSelectedAttributesCallback } from '~components/Pages/DataShowcasePage/DataNavigation'
-import { useWasmWorkerValue } from '~states'
+import { useSdsManagerInstance } from '~states'
+
+import { useMaxCount } from './hooks.js'
+import type { SetSelectedAttributesCallback } from './SelectedAttributes.js'
 
 export interface ColumnAttributeSelectorProps {
+	contextKey: string
 	headerName: string
 	columnIndex: number
 	height: string | number
@@ -19,6 +25,7 @@ export interface ColumnAttributeSelectorProps {
 	chartBarHeight: number
 	minHeight?: string | number
 	selectedAttributes: Set<string>
+	selectedAttributesByColumn: ISelectedAttributesByColumn
 	onSetSelectedAttributes: SetSelectedAttributesCallback
 }
 
@@ -27,6 +34,7 @@ const AXIS_HEIGHT = 16
 
 export const ColumnAttributeSelector: React.FC<ColumnAttributeSelectorProps> =
 	memo(function ColumnAttributeSelector({
+		contextKey,
 		headerName,
 		columnIndex,
 		height,
@@ -34,11 +42,11 @@ export const ColumnAttributeSelector: React.FC<ColumnAttributeSelectorProps> =
 		chartBarHeight,
 		minHeight,
 		selectedAttributes,
+		selectedAttributesByColumn,
 		onSetSelectedAttributes,
 	}: ColumnAttributeSelectorProps) {
 		const [items, setItems] = useState<IAttributesIntersection[]>([])
-		const [isLoading, setIsLoading] = useState(false)
-		const worker = useWasmWorkerValue()
+		const [manager] = useSdsManagerInstance()
 		const maxCount = useMaxCount(items)
 		const isMounted = useRef(true)
 		const stopPropagation = useStopPropagation()
@@ -57,19 +65,29 @@ export const ColumnAttributeSelector: React.FC<ColumnAttributeSelectorProps> =
 		)
 
 		useEffect(() => {
-			if (worker) {
-				setIsLoading(true)
-				worker
-					.attributesIntersectionsByColumn([headerName])
+			if (manager) {
+				manager.instance
+					.attributesIntersectionsByColumn(contextKey, [headerName])
 					.then(intersections => {
 						if (!isMounted.current || !intersections) {
 							return
 						}
 						setItems(intersections[columnIndex] ?? [])
-						setIsLoading(false)
+					})
+					.catch(() => {
+						if (!isMounted.current) {
+							return
+						}
 					})
 			}
-		}, [worker, setIsLoading, setItems, headerName, columnIndex])
+		}, [
+			manager,
+			setItems,
+			headerName,
+			columnIndex,
+			contextKey,
+			selectedAttributesByColumn,
+		])
 
 		useEffect(() => {
 			return () => {
@@ -90,27 +108,23 @@ export const ColumnAttributeSelector: React.FC<ColumnAttributeSelectorProps> =
 				<Stack.Item>
 					<Label styles={{ root: { fontWeight: 'bold' } }}>{headerName}</Label>
 				</Stack.Item>
-				{isLoading ? (
-					<Spinner />
-				) : (
-					<Stack.Item
-						styles={{
-							root: {
-								overflowY: 'auto',
-								paddingRight: '20px',
-							},
-						}}
-						onWheel={stopPropagation}
-					>
-						<AttributeIntersectionValueChart
-							items={items}
-							onClick={handleSelection}
-							maxCount={maxCount}
-							height={chartBarHeight * Math.max(items.length, 1) + AXIS_HEIGHT}
-							selectedAttributes={selectedAttributes}
-						/>
-					</Stack.Item>
-				)}
+				<Stack.Item
+					styles={{
+						root: {
+							overflowY: 'auto',
+							paddingRight: '20px',
+						},
+					}}
+					onWheel={stopPropagation}
+				>
+					<AttributeIntersectionValueChart
+						items={items}
+						onClick={handleSelection}
+						maxCount={maxCount}
+						height={chartBarHeight * Math.max(items.length, 1) + AXIS_HEIGHT}
+						selectedAttributes={selectedAttributes}
+					/>
+				</Stack.Item>
 			</Stack>
 		)
 	})
